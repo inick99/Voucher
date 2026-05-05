@@ -124,6 +124,7 @@
 
     .actions {
       display: flex;
+      flex-wrap: wrap;
       gap: 10px;
       margin-top: 16px;
     }
@@ -205,8 +206,37 @@
       color: var(--muted);
     }
 
+    .narration-tools,
+    .utility-actions {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 8px;
+      align-items: end;
+      margin-top: 8px;
+    }
+
+    .utility-actions {
+      grid-template-columns: repeat(3, auto);
+      justify-content: start;
+    }
+
+    .validation-list {
+      margin: 8px 0 0;
+      padding-left: 18px;
+    }
+
+    .validation-list li {
+      margin-top: 4px;
+    }
+
+    .hidden-file {
+      display: none;
+    }
+
     @media (max-width: 560px) {
-      .account-save {
+      .account-save,
+      .narration-tools,
+      .utility-actions {
         grid-template-columns: 1fr;
       }
     }
@@ -481,6 +511,11 @@
           <button id="accountSaveButton" type="button" onclick="saveAccount()">Save Account</button>
           <button id="accountCancelButton" class="secondary" type="button" onclick="cancelAccountEdit()" style="display: none;">Cancel Edit</button>
         </div>
+        <div class="utility-actions">
+          <button class="secondary" type="button" onclick="exportAccounts()">Export Accounts</button>
+          <button class="secondary" type="button" onclick="document.getElementById('accountImportFile').click()">Import Accounts</button>
+          <input id="accountImportFile" class="hidden-file" type="file" accept="application/json,.json" onchange="importAccounts(this)">
+        </div>
         <div id="accountList"></div>
       </details>	  
 
@@ -501,12 +536,21 @@
       <label>Narration
         <textarea id="commonNarration">Narration</textarea>
       </label>
+      <div class="narration-tools">
+        <label>Narration Template
+          <select id="narrationTemplateSelect" onchange="applyNarrationTemplate()"></select>
+        </label>
+        <button class="secondary" type="button" onclick="saveNarrationTemplate()">Save Narration</button>
+        <button class="secondary" type="button" onclick="deleteNarrationTemplate()">Delete Narration</button>
+      </div>
 
       <h2>Entries</h2>
       <div id="entries"></div>
+      <datalist id="accountOptions"></datalist>
 
       <div class="actions">
         <button type="button" onclick="generateVoucher()">Generate Voucher</button>
+        <button class="secondary" type="button" onclick="duplicatePreviousVoucher()">Use Previous Voucher</button>
         <button class="secondary" type="button" onclick="window.print()">Print</button>
       </div>
       <div id="message" class="message"></div>
@@ -536,6 +580,7 @@
       }
     });
     let editingAccountId = "";
+    let lastGeneratedVoucher = null;
 
     function readStorage(key, fallback) {
       try {
@@ -570,6 +615,57 @@
       }));
     }
 
+    function getNarrationTemplates() {
+      return readStorage("narrationTemplates", [])
+        .map(template => String(template || "").trim())
+        .filter(Boolean)
+        .filter((template, index, list) => list.indexOf(template) === index);
+    }
+
+    function saveNarrationTemplates(templates) {
+      localStorage.setItem("narrationTemplates", JSON.stringify(templates));
+    }
+
+    function renderNarrationTemplates() {
+      const templates = getNarrationTemplates();
+      document.getElementById("narrationTemplateSelect").innerHTML = `
+        <option value="">Select saved narration</option>
+        ${templates.map(template => `<option value="${escapeHtml(template)}">${escapeHtml(template.slice(0, 70))}</option>`).join("")}
+      `;
+    }
+
+    function saveNarrationTemplate() {
+      const narration = document.getElementById("commonNarration").value.trim();
+      if (!narration) {
+        showMessage("Enter narration before saving it as a template.");
+        return;
+      }
+
+      const templates = getNarrationTemplates();
+      if (!templates.includes(narration)) templates.push(narration);
+      saveNarrationTemplates(templates);
+      renderNarrationTemplates();
+      document.getElementById("narrationTemplateSelect").value = narration;
+      showMessage("Narration template saved.");
+    }
+
+    function applyNarrationTemplate() {
+      const narration = document.getElementById("narrationTemplateSelect").value;
+      if (narration) document.getElementById("commonNarration").value = narration;
+    }
+
+    function deleteNarrationTemplate() {
+      const selected = document.getElementById("narrationTemplateSelect").value;
+      if (!selected) {
+        showMessage("Select a narration template to delete.");
+        return;
+      }
+
+      saveNarrationTemplates(getNarrationTemplates().filter(template => template !== selected));
+      renderNarrationTemplates();
+      showMessage("Narration template deleted.");
+    }
+
     function getAccounts() {
       const saved = readStorage("accounts", []);
       return saved
@@ -590,6 +686,20 @@
 
     function makeAccountId(name, no) {
       return `${encodeURIComponent(no.trim().toLowerCase())}|${encodeURIComponent(name.trim().toLowerCase())}`;
+    }
+
+    function accountDisplay(account) {
+      return `${account.name} | ${account.no} | ${account.branch}`;
+    }
+
+    function findAccountByDisplay(displayValue) {
+      return getAccounts().find(account => accountDisplay(account) === displayValue);
+    }
+
+    function renderAccountOptions() {
+      document.getElementById("accountOptions").innerHTML = getAccounts()
+        .map(account => `<option value="${escapeHtml(accountDisplay(account))}"></option>`)
+        .join("");
     }
 
     function saveAccount() {
@@ -618,6 +728,7 @@
       saveAccounts(saved);
       clearAccountForm();
       renderAccountList();
+      renderAccountOptions();
       renderEntries();
       showMessage("");
     }
@@ -656,6 +767,7 @@
       saveAccounts(saved);
       if (editingAccountId === id) clearAccountForm();
       renderAccountList();
+      renderAccountOptions();
       renderEntries();
       showMessage("");
     }
@@ -694,7 +806,60 @@
       `;
     }
 
-    function renderEntries() {
+    function exportAccounts() {
+      const accounts = getAccounts();
+      if (!accounts.length) {
+        showMessage("No saved accounts to export.");
+        return;
+      }
+
+      downloadJson("voucher-accounts-backup.json", {
+        exportedAt: new Date().toISOString(),
+        accounts
+      });
+      showMessage("");
+    }
+
+    function importAccounts(input) {
+      const file = input.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const parsed = JSON.parse(reader.result);
+          const imported = Array.isArray(parsed) ? parsed : parsed.accounts;
+          if (!Array.isArray(imported)) throw new Error("Invalid account backup.");
+
+          const merged = getAccounts();
+          imported.forEach(account => {
+            const name = String(account.name || "").trim();
+            const no = String(account.no || "").trim();
+            const branch = String(account.branch || "").trim();
+            if (!name || !no || !branch) return;
+
+            const id = account.id || makeAccountId(name, no);
+            const cleanAccount = { id, name, no, branch };
+            const existingIndex = merged.findIndex(item => item.id === id || (item.name === name && item.no === no));
+            if (existingIndex >= 0) merged[existingIndex] = cleanAccount;
+            else merged.push(cleanAccount);
+          });
+
+          saveAccounts(merged);
+          renderAccountList();
+          renderAccountOptions();
+          renderEntries();
+          showMessage("Accounts imported successfully.");
+        } catch {
+          showMessage("Could not import accounts. Please select a valid backup file.");
+        } finally {
+          input.value = "";
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    function renderEntries(entryData = []) {
       const [debitCount, creditCount] = document.getElementById("voucherType").value.split("-").map(Number);
       const entries = [];
 
@@ -702,24 +867,19 @@
       for (let i = 0; i < creditCount; i++) entries.push("Credit");
 
       document.getElementById("entries").innerHTML = entries
-        .map((type, index) => entryHTML(type, index))
+        .map((type, index) => entryHTML(type, index, entryData[index]))
         .join("");
     }
 
-    function entryHTML(type, index) {
+    function entryHTML(type, index, entryData = {}) {
+      const account = entryData.accountId
+        ? getAccounts().find(item => item.id === entryData.accountId)
+        : null;
       const sample = {
         type,
-        accountNo: "",
-        accountName: "",
-        amount: "0"
+        accountValue: account ? accountDisplay(account) : entryData.accountDisplay || "",
+        amount: entryData.amount ?? "0"
       };
-      const accountOptions = getAccounts()
-        .map(account => {
-          const selected = account.no === sample.accountNo && account.name === sample.accountName ? "selected" : "";
-          return `<option value="${escapeHtml(account.no)}" data-name="${escapeHtml(account.name)}" data-branch="${escapeHtml(account.branch)}" ${selected}>${escapeHtml(account.name)} (${escapeHtml(account.no)})</option>`;
-        })
-        .join("");
-      const options = `<option value="" data-name="" data-branch="">Select account</option>${accountOptions}`;
 
       return `
         <div class="entry" data-type="${type}">
@@ -731,7 +891,7 @@
             <input class="amount" type="number" min="0" step="0.01" value="${escapeHtml(sample.amount)}">
           </label>
           <label>Account
-            <select class="account">${options}</select>
+            <input class="account" list="accountOptions" placeholder="Search by account name, number, or branch" value="${escapeHtml(sample.accountValue)}">
           </label>
         </div>
       `;
@@ -746,28 +906,46 @@
         .filter(entry => entry.type === "Credit")
         .reduce((sum, entry) => sum + entry.amount, 0);
 
-      if (!entries.length || entries.some(entry => !entry.accountNo || !entry.branch)) {
-        showMessage("Select accounts with saved branch for every entry.");
-        return;
-      }
-
-      if (roundMoney(debitTotal) !== roundMoney(creditTotal)) {
-        showMessage(`Debit total ${formatAmount(debitTotal)} and credit total ${formatAmount(creditTotal)} must match.`);
-        return;
+      const errors = validateVoucher(entries, debitTotal, creditTotal);
+      if (errors.length) {
+        showMessages(errors);
+        return false;
       }
 
       document.getElementById("voucherOutput").innerHTML = entries.map(voucherHTML).join("") + footerHTML();
       showMessage("");
+      savePreviousVoucher(entries);
+      return true;
+    }
+
+    function validateVoucher(entries, debitTotal, creditTotal) {
+      const errors = [];
+      if (!entries.length) errors.push("No voucher entries found.");
+
+      entries.forEach((entry, index) => {
+        const label = `${entry.type} entry #${index + 1}`;
+        if (!entry.accountDisplay) errors.push(`${label}: select an account.`);
+        else if (!entry.accountNo || !entry.branch) errors.push(`${label}: select an account from the saved account list.`);
+        if (!entry.amount || entry.amount <= 0) errors.push(`${label}: amount must be greater than zero.`);
+      });
+
+      if (roundMoney(debitTotal) !== roundMoney(creditTotal)) {
+        errors.push(`Debit total ${formatAmount(debitTotal)} and credit total ${formatAmount(creditTotal)} must match.`);
+      }
+
+      return errors;
     }
 
     function readEntry(entryNode) {
-      const account = entryNode.querySelector(".account");
-      const selected = account.options[account.selectedIndex];
+      const accountInput = entryNode.querySelector(".account");
+      const account = findAccountByDisplay(accountInput.value.trim());
       return {
         type: entryNode.dataset.type,
-        accountNo: account.value.trim(),
-        accountName: selected.dataset.name || selected.textContent.trim(),
-        branch: selected.dataset.branch || "",
+        accountId: account ? account.id : "",
+        accountDisplay: accountInput.value.trim(),
+        accountNo: account ? account.no : "",
+        accountName: account ? account.name : "",
+        branch: account ? account.branch : "",
         narration: document.getElementById("commonNarration").value.trim(),
         amount: Number(entryNode.querySelector(".amount").value || 0)
       };
@@ -816,6 +994,47 @@
       `;
     }
 
+    function savePreviousVoucher(entries) {
+      lastGeneratedVoucher = {
+        voucherDate: document.getElementById("voucherDate").value,
+        voucherType: document.getElementById("voucherType").value,
+        narration: document.getElementById("commonNarration").value,
+        entries: entries.map(entry => ({
+          type: entry.type,
+          amount: entry.amount,
+          accountId: entry.accountId,
+          accountDisplay: entry.accountDisplay
+        }))
+      };
+      localStorage.setItem("previousVoucher", JSON.stringify(lastGeneratedVoucher));
+    }
+
+    function duplicatePreviousVoucher() {
+      const voucher = lastGeneratedVoucher || readStorage("previousVoucher", {});
+      if (!voucher.entries || !voucher.entries.length) {
+        showMessage("No previous voucher found.");
+        return;
+      }
+
+      document.getElementById("voucherDate").value = voucher.voucherDate || document.getElementById("voucherDate").value;
+      document.getElementById("voucherType").value = voucher.voucherType || document.getElementById("voucherType").value;
+      document.getElementById("commonNarration").value = voucher.narration || "";
+      renderEntries(voucher.entries);
+      showMessage("Previous voucher loaded. Change date, amount, or narration as needed.");
+    }
+
+    function downloadJson(filename, data) {
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    }
+
     function amountInWords(amount) {
       return toWords.convert(Number(amount.toFixed(2)), { currency: true });
     }
@@ -841,6 +1060,15 @@
       document.getElementById("message").textContent = text;
     }
 
+    function showMessages(messages) {
+      document.getElementById("message").innerHTML = `
+        <div>Please fix these items:</div>
+        <ul class="validation-list">
+          ${messages.map(message => `<li>${escapeHtml(message)}</li>`).join("")}
+        </ul>
+      `;
+    }
+
     function jsString(value) {
       return JSON.stringify(String(value)).replace(/"/g, "&quot;");
     }
@@ -856,7 +1084,9 @@
 
     setDefaultVoucherDate();
     loadBankSetup();
+    renderNarrationTemplates();
     renderAccountList();
+    renderAccountOptions();
     renderEntries();
   </script>
 </body>
