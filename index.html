@@ -808,10 +808,11 @@
       showMessage("");
     }
 
-    function editAccount(id) {
-      const account = getAccounts().find(item => item.id === id);
-      if (!account) return;
-
+    function editAccount(index) {
+      const accounts = getAccounts();
+      if (index < 0 || index >= accounts.length) return;
+      
+      const account = accounts[index];
       editingAccountId = account.id;
       document.getElementById("accName").value = account.name;
       document.getElementById("accNo").value = account.no;
@@ -821,12 +822,16 @@
       showMessage("");
     }
 
-    function deleteAccount(id) {
+    function deleteAccount(index) {
+      const accounts = getAccounts();
+      if (index < 0 || index >= accounts.length) return;
+      
       if (!confirm("Delete this saved account from this browser?")) return;
 
-      const saved = getAccounts().filter(account => account.id !== id);
+      const accountId = accounts[index].id;
+      const saved = accounts.filter((_, i) => i !== index);
       saveAccounts(saved);
-      if (editingAccountId === id) clearAccountForm();
+      if (editingAccountId === accountId) clearAccountForm();
       renderAccountList();
       renderAccountOptions();
       renderEntries();
@@ -851,14 +856,14 @@
             </tr>
           </thead>
           <tbody>
-            ${accounts.map(account => `
+            ${accounts.map((account, index) => `
               <tr>
                 <td>${escapeHtml(account.name)}</td>
                 <td>${escapeHtml(account.no)}</td>
                 <td>${escapeHtml(account.branch)}</td>
                 <td class="table-actions">
-                  <button type="button" onclick="editAccount(${jsString(account.id)})">Edit</button>
-                  <button class="secondary" type="button" onclick="deleteAccount(${jsString(account.id)})">Delete</button>
+                  <button type="button" onclick="editAccount(${index})">Edit</button>
+                  <button class="secondary" type="button" onclick="deleteAccount(${index})">Delete</button>
                 </td>
               </tr>
             `).join("")}
@@ -996,7 +1001,7 @@
       // Only validate balance for mixed debit/credit vouchers
       if (voucherType !== "3-0" && voucherType !== "0-3") {
         if (roundMoney(debitTotal) !== roundMoney(creditTotal)) {
-          errors.push(`Debit total ${formatAmount(debitTotal)} and credit total ${formatAmount(creditTotal)} must match.`);
+          errors.push(`Debit total ${formatAmountIndian(debitTotal)} and credit total ${formatAmountIndian(creditTotal)} must match.`);
         }
       }
 
@@ -1021,7 +1026,7 @@
     function voucherHTML(entry) {
       const typeUpper = entry.type.toUpperCase();
       const voucherId = entry.type === "Debit" ? "67" : "66";
-      const amount = formatAmount(entry.amount);
+      const amount = formatAmountIndian(entry.amount);
       const words = amountInWords(entry.amount);
 
       return `
@@ -1088,8 +1093,25 @@
       showMessage("");
     }
 
-    function formatAmount(amount) {
-      return (Math.round(amount * 100) / 100).toFixed(2);
+    function formatAmountIndian(amount) {
+      // Format amount in Indian currency format: ##,##,###.##
+      const roundedAmount = Math.round(amount * 100) / 100;
+      const parts = roundedAmount.toFixed(2).split('.');
+      const integerPart = parts[0];
+      const decimalPart = parts[1];
+
+      // Add Indian number formatting
+      let formatted = '';
+      let count = 0;
+      for (let i = integerPart.length - 1; i >= 0; i--) {
+        if (count === 2 || count === 4 || count === 7) {
+          formatted = ',' + formatted;
+        }
+        formatted = integerPart[i] + formatted;
+        count++;
+      }
+
+      return formatted + '.' + decimalPart;
     }
 
     function roundMoney(amount) {
