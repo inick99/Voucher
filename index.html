@@ -529,6 +529,8 @@
             <option value="1-1" selected>1 Debit, 1 Credit</option>
             <option value="1-2">1 Debit, 2 Credit</option>
             <option value="2-1">2 Debit, 1 Credit</option>
+            <option value="3-0">Only Debit</option>
+            <option value="0-3">Only Credit</option>
           </select>
         </label>
       </div>
@@ -929,8 +931,12 @@
         if (!entry.amount || entry.amount <= 0) errors.push(`${label}: amount must be greater than zero.`);
       });
 
-      if (roundMoney(debitTotal) !== roundMoney(creditTotal)) {
-        errors.push(`Debit total ${formatAmount(debitTotal)} and credit total ${formatAmount(creditTotal)} must match.`);
+      const voucherType = document.getElementById("voucherType").value;
+      // Only validate balance for mixed debit/credit vouchers
+      if (voucherType !== "3-0" && voucherType !== "0-3") {
+        if (roundMoney(debitTotal) !== roundMoney(creditTotal)) {
+          errors.push(`Debit total ${formatAmount(debitTotal)} and credit total ${formatAmount(creditTotal)} must match.`);
+        }
       }
 
       return errors;
@@ -998,7 +1004,7 @@
       lastGeneratedVoucher = {
         voucherDate: document.getElementById("voucherDate").value,
         voucherType: document.getElementById("voucherType").value,
-        narration: document.getElementById("commonNarration").value,
+        commonNarration: document.getElementById("commonNarration").value,
         entries: entries.map(entry => ({
           type: entry.type,
           amount: entry.amount,
@@ -1006,82 +1012,76 @@
           accountDisplay: entry.accountDisplay
         }))
       };
-      localStorage.setItem("previousVoucher", JSON.stringify(lastGeneratedVoucher));
     }
 
     function duplicatePreviousVoucher() {
-      const voucher = lastGeneratedVoucher || readStorage("previousVoucher", {});
-      if (!voucher.entries || !voucher.entries.length) {
-        showMessage("No previous voucher found.");
+      if (!lastGeneratedVoucher) {
+        showMessage("Generate a voucher first.");
         return;
       }
 
-      document.getElementById("voucherDate").value = voucher.voucherDate || document.getElementById("voucherDate").value;
-      document.getElementById("voucherType").value = voucher.voucherType || document.getElementById("voucherType").value;
-      document.getElementById("commonNarration").value = voucher.narration || "";
-      renderEntries(voucher.entries);
-      showMessage("Previous voucher loaded. Change date, amount, or narration as needed.");
+      document.getElementById("voucherDate").value = lastGeneratedVoucher.voucherDate;
+      document.getElementById("voucherType").value = lastGeneratedVoucher.voucherType;
+      document.getElementById("commonNarration").value = lastGeneratedVoucher.commonNarration;
+      renderEntries(lastGeneratedVoucher.entries);
+      showMessage("");
+    }
+
+    function formatAmount(amount) {
+      return (Math.round(amount * 100) / 100).toFixed(2);
+    }
+
+    function roundMoney(amount) {
+      return Math.round(amount * 100) / 100;
+    }
+
+    function amountInWords(amount) {
+      try {
+        return toWords.convert(amount);
+      } catch {
+        return "ERROR";
+      }
+    }
+
+    function formatDate(dateString) {
+      if (!dateString) return "";
+      const date = new Date(dateString + "T00:00:00Z");
+      const day = String(date.getUTCDate()).padStart(2, "0");
+      const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+      const year = date.getUTCFullYear();
+      return `${day}/${month}/${year}`;
+    }
+
+    function escapeHtml(text) {
+      const map = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+      return String(text || "").replace(/[&<>"']/g, char => map[char]);
+    }
+
+    function jsString(text) {
+      return JSON.stringify(text);
+    }
+
+    function showMessage(message) {
+      document.getElementById("message").textContent = message;
+    }
+
+    function showMessages(messages) {
+      const html = `<ul class="validation-list">${messages.map(msg => `<li>${escapeHtml(msg)}</li>`).join("")}</ul>`;
+      document.getElementById("message").innerHTML = html;
     }
 
     function downloadJson(filename, data) {
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const json = JSON.stringify(data, null, 2);
+      const blob = new Blob([json], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
       link.download = filename;
-      document.body.appendChild(link);
       link.click();
-      link.remove();
       URL.revokeObjectURL(url);
     }
 
-    function amountInWords(amount) {
-      return toWords.convert(Number(amount.toFixed(2)), { currency: true });
-    }
-
-    function formatAmount(amount) {
-      return Number(amount).toLocaleString("en-IN", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2
-      });
-    }
-
-    function formatDate(dateValue) {
-      if (!dateValue) return "";
-      const [year, month, day] = dateValue.split("-");
-      return `${day}/${month}/${year}`;
-    }
-
-    function roundMoney(amount) {
-      return Math.round(Number(amount) * 100) / 100;
-    }
-
-    function showMessage(text) {
-      document.getElementById("message").textContent = text;
-    }
-
-    function showMessages(messages) {
-      document.getElementById("message").innerHTML = `
-        <div>Please fix these items:</div>
-        <ul class="validation-list">
-          ${messages.map(message => `<li>${escapeHtml(message)}</li>`).join("")}
-        </ul>
-      `;
-    }
-
-    function jsString(value) {
-      return JSON.stringify(String(value)).replace(/"/g, "&quot;");
-    }
-
-    function escapeHtml(value) {
-      return String(value ?? "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-    }
-
+    // Initialize
     setDefaultVoucherDate();
     loadBankSetup();
     renderNarrationTemplates();
