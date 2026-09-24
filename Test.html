@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>Branch Performance</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f4f6f8;
+      color: #1f2937;
+    }
+
+    .container {
+      max-width: 650px;
+      margin: 40px auto;
+      padding: 20px;
+    }
+
+    .card {
+      background: white;
+      border-radius: 14px;
+      padding: 30px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+    }
+
+    h1 {
+      margin-top: 0;
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      color: #6b7280;
+      margin-bottom: 30px;
+    }
+
+    .info {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 15px;
+      margin-bottom: 30px;
+    }
+
+    .info-box {
+      background: #f3f4f6;
+      padding: 16px;
+      border-radius: 10px;
+    }
+
+    .label {
+      font-size: 13px;
+      color: #6b7280;
+      margin-bottom: 5px;
+    }
+
+    .value {
+      font-size: 20px;
+      font-weight: bold;
+    }
+
+    .kpi {
+      border-top: 1px solid #e5e7eb;
+      padding-top: 25px;
+    }
+
+    .target {
+      font-size: 42px;
+      font-weight: bold;
+      margin: 10px 0 25px;
+    }
+
+    input {
+      width: 100%;
+      padding: 14px;
+      font-size: 18px;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+    }
+
+    button {
+      width: 100%;
+      margin-top: 20px;
+      padding: 15px;
+      font-size: 16px;
+      font-weight: bold;
+      border: 0;
+      border-radius: 8px;
+      background: #2563eb;
+      color: white;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #1d4ed8;
+    }
+
+    button:disabled {
+      background: #9ca3af;
+      cursor: not-allowed;
+    }
+
+    .result {
+      display: none;
+      margin-top: 25px;
+      padding: 20px;
+      border-radius: 10px;
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+    }
+
+    .result-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      text-align: center;
+    }
+
+    .result-number {
+      font-size: 24px;
+      font-weight: bold;
+    }
+
+    .message {
+      margin-top: 20px;
+      padding: 12px;
+      border-radius: 8px;
+      display: none;
+    }
+
+    .error {
+      background: #fef2f2;
+      color: #991b1b;
+    }
+
+    .success {
+      background: #f0fdf4;
+      color: #166534;
+    }
+
+    @media (max-width: 500px) {
+      .container {
+        margin: 10px auto;
+      }
+
+      .card {
+        padding: 20px;
+      }
+
+      .info {
+        grid-template-columns: 1fr;
+      }
+
+      .result-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="container">
+
+    <div class="card">
+
+      <h1>Branch Performance</h1>
+
+      <div class="subtitle">
+        Monthly Branch Report
+      </div>
+
+      <div class="info">
+
+        <div class="info-box">
+          <div class="label">Branch</div>
+          <div class="value" id="branchName">
+            Loading...
+          </div>
+        </div>
+
+        <div class="info-box">
+          <div class="label">Month</div>
+          <div class="value">
+            March 2026
+          </div>
+        </div>
+
+      </div>
+
+      <div class="kpi">
+
+        <div class="label">
+          New Account Opening Target
+        </div>
+
+        <div class="target" id="target">
+          Loading...
+        </div>
+
+        <div class="label">
+          Accounts Opened
+        </div>
+
+        <input
+          type="number"
+          id="actual"
+          min="0"
+          placeholder="Enter number"
+        >
+
+        <button id="submitButton" onclick="submitReport()">
+          Submit Report
+        </button>
+
+        <div id="message" class="message"></div>
+
+        <div id="result" class="result">
+
+          <div class="result-grid">
+
+            <div>
+              <div class="label">Target</div>
+              <div class="result-number" id="resultTarget">
+                -
+              </div>
+            </div>
+
+            <div>
+              <div class="label">Achieved</div>
+              <div class="result-number" id="resultActual">
+                -
+              </div>
+            </div>
+
+            <div>
+              <div class="label">Achievement</div>
+              <div class="result-number" id="resultPercent">
+                -
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+<script>
+
+const API =
+  "https://orange-dawn-9c9e.jzcg4bz69d.workers.dev";
+
+const BRANCH = "CHILODA";
+const MONTH = "2026-03";
+
+let target = 0;
+let kpiId = null;
+
+
+// Load target
+async function loadTarget() {
+
+  try {
+
+    const response = await fetch(
+      `${API}/api/target/${BRANCH}/${MONTH}`
+    );
+
+    if (!response.ok) {
+      throw new Error("Could not load target");
+    }
+
+    const data = await response.json();
+
+    if (!data.length) {
+      throw new Error("No target found");
+    }
+
+    const record = data[0];
+
+    target = Number(record.target);
+    kpiId = Number(record.kpi_id);
+
+    document.getElementById("branchName").textContent =
+      record.branch;
+
+    document.getElementById("target").textContent =
+      target;
+
+  } catch (error) {
+
+    showMessage(
+      error.message,
+      "error"
+    );
+
+  }
+
+}
+
+
+// Submit report
+async function submitReport() {
+
+  const actualInput =
+    document.getElementById("actual");
+
+  const actual =
+    Number(actualInput.value);
+
+  if (!Number.isFinite(actual) || actual < 0) {
+
+    showMessage(
+      "Please enter a valid number.",
+      "error"
+    );
+
+    return;
+  }
+
+  const button =
+    document.getElementById("submitButton");
+
+  button.disabled = true;
+  button.textContent = "Submitting...";
+
+  try {
+
+    const response = await fetch(
+      `${API}/api/submit`,
+      {
+        method: "POST",
+
+        headers: {
+          "Content-Type": "application/json"
+        },
+
+        body: JSON.stringify({
+
+          branch_code: BRANCH,
+
+          month: MONTH,
+
+          values: {
+            [kpiId]: actual
+          }
+
+        })
+
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.error || "Submission failed"
+      );
+    }
+
+    showResult(actual);
+
+    showMessage(
+      "Report submitted successfully.",
+      "success"
+    );
+
+    actualInput.disabled = true;
+
+    button.textContent = "Submitted";
+
+  } catch (error) {
+
+    showMessage(
+      error.message,
+      "error"
+    );
+
+    button.disabled = false;
+    button.textContent = "Submit Report";
+
+  }
+
+}
+
+
+// Show calculation
+function showResult(actual) {
+
+  const percentage =
+    target > 0
+      ? (actual / target) * 100
+      : 0;
+
+  document.getElementById(
+    "resultTarget"
+  ).textContent = target;
+
+  document.getElementById(
+    "resultActual"
+  ).textContent = actual;
+
+  document.getElementById(
+    "resultPercent"
+  ).textContent =
+    percentage.toFixed(1) + "%";
+
+  document.getElementById(
+    "result"
+  ).style.display = "block";
+
+}
+
+
+// Message
+function showMessage(text, type) {
+
+  const element =
+    document.getElementById("message");
+
+  element.textContent = text;
+
+  element.className =
+    "message " + type;
+
+  element.style.display = "block";
+
+}
+
+
+// Start
+loadTarget();
+
+</script>
+
+</body>
+</html>
